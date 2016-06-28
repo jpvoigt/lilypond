@@ -223,7 +223,9 @@
        (system-separator-markup (ly:output-def-lookup layout 'system-separator-markup))
        (system-separator-stencil (if (markup? system-separator-markup)
                                      (interpret-markup layout
-                                                       (layout-extract-page-properties layout)
+                                                       (cons `((page:page-number . ,number)
+                                                               (page:page-number-string . ,(format "~A" number)))
+                                                             (layout-extract-page-properties layout))
                                                        system-separator-markup)
                                      #f))
 
