@@ -1,7 +1,7 @@
 @c -*- coding: utf-8; mode: texinfo; documentlanguage: fr -*-
 
 @ignore
-   Translation of GIT committish: 12a06e5c29a2f58081068ac7663f0d6a6d4bdf95
+   Translation of GIT committish: db92af51a444062c8edaef3afa36f57375b8feeb
 
    When revising a translation, copy the HEAD committish of the
    version that you are working on.  For details, see the Contributors'
@@ -1765,7 +1765,7 @@ Une métrique composite se crée à l'aide de la fonction
 @code{\compoundMeter}, en suivant la syntaxe :
 
 @example
-\compoundMeter #'@code{(liste de listes)}
+\compoundMeter #'(liste de listes)
 @end example
 
 La construction la plus simple est constituée d'une seule liste, dans

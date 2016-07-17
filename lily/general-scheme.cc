@@ -620,7 +620,8 @@ ly_run_command (char *argv[], char **standard_output, char **standard_error)
                      standard_output, standard_error,
                      &exit_status, &error))
     {
-      fprintf (stderr, "failed (%d): %s: %s\n", exit_status, argv[0], error->message);
+      warning (_f ("g_spawn_sync failed (%d): %s: %s",
+                   exit_status, argv[0], error->message));
       g_error_free (error);
       if (!exit_status)
         exit_status = -1;
@@ -661,8 +662,14 @@ LY_DEFINE (ly_spawn, "ly:spawn",
   // Always get the pointer to the stdout/stderr messages
   int exit_status = ly_run_command (argv, &standard_output, &standard_error);
 
-  // Print out stdout and stderr only in debug mode
-  debug_output (string ("\n") + standard_output + standard_error, true);
+  if (standard_output && standard_error)
+    {
+      // Print out stdout and stderr only in debug mode
+      debug_output (string ("\n") + standard_output + standard_error, true);
+    }
+
+  g_free (standard_error);
+  g_free (standard_output);
 
   for (int i = 0; i < n; i++)
     free (argv[i]);

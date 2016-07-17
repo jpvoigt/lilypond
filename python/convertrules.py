@@ -3888,6 +3888,21 @@ def conv (str):
                   repl, str)
     return str
 
+@rule ((2, 19, 46), r"""\context ... \modification -> \context ... \with \modification
+\consists "Output_property_engraver" ->""")
+def conv (str):
+    word=r'(?:#?"[^"]*"|\b' + wordsyntax + r'\b)'
+    mods = string.join (re.findall ("\n(" + wordsyntax + r")\s*=\s*\\with(?:\s|\\|\{)", str)
+                        + ['RemoveEmptyStaves','RemoveAllEmptyStaves'], "|")
+    str = re.sub (r"(\\(?:drums|figures|chords|lyrics|addlyrics|"
+                  + r"(?:new|context)\s*" + word
+                  + r"(?:\s*=\s*" + word + r")?)\s*)(\\(?:" + mods + "))",
+                  r"\1\\with \2", str)
+
+    str = re.sub (r'\\(consists|remove)\s+"?Output_property_engraver"?\s*',
+                  '', str)
+    return str
+
 # Guidelines to write rules (please keep this at the end of this file)
 #
 # - keep at most one rule per version; if several conversions should be done,

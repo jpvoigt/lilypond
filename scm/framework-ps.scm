@@ -245,6 +245,36 @@
                    binary-data
                    footer)))
 
+(define check-conflict-and-embed-cff
+  (let ((font-list '()))
+    (lambda (name file-name font-index)
+      (if name
+          (let* ((name-symbol (string->symbol name))
+                 (args-filename-offset
+                  (cons file-name (ly:get-cff-offset file-name font-index)))
+                 (found-filename-offset (assq name-symbol font-list)))
+            (if found-filename-offset
+                (begin
+                  (if (equal? args-filename-offset (cdr found-filename-offset))
+                      (ly:debug
+                       (_ "CFF font `~a' already embedded, skipping.")
+                       name)
+                      (ly:warning
+                       (_ "Different CFF fonts which have the same name `~a' has been detected. The font cannot be embedded.")
+                       name))
+                  "")
+                (begin
+                  (ly:debug (_ "Embedding CFF font `~a'.") name)
+                  (set! font-list
+                        (acons name-symbol args-filename-offset font-list))
+                  (ps-embed-cff (ly:otf->cff file-name font-index) name 0))))
+          (begin
+            (ly:debug (_ "Initializing embedded CFF font list."))
+            (set! font-list '()))))))
+
+(define (initialize-font-embedding)
+  (check-conflict-and-embed-cff #f #f #f))
+
 (define (write-preamble paper load-fonts? port)
   (define (internal-font? font-name-filename)
     (let* ((font (car font-name-filename))
@@ -258,16 +288,19 @@
 
   (define (load-font-via-GS font-name-filename)
     (define (is-collection-font? file-name)
-      (let ((port (open-file file-name "rb")))
-        (if (eq? (read-char port) #\t)
-            (if (eq? (read-char port) #\t)
-                (if (eq? (read-char port) #\c)
-                    (if (eq? (read-char port) #\f)
-                        #t
-                        #f)
-                    #f)
-                #f)
-            #f)))
+      (let* ((port (open-file file-name "rb"))
+             (retval
+              (if (eq? (read-char port) #\t)
+                  (if (eq? (read-char port) #\t)
+                      (if (eq? (read-char port) #\c)
+                          (if (eq? (read-char port) #\f)
+                              #t
+                              #f)
+                          #f)
+                      #f)
+                  #f)))
+        (close-port port)
+        retval))
 
     (define (ps-load-file file-name)
       (if (string? file-name)
@@ -373,7 +406,7 @@
         (ly:ttf->pfa file-name font-index))
        ((eq? font-format 'CFF)
         ;; OpenType/CFF fonts (OTF) and OpenType/CFF Collection (OTC)
-        (ps-embed-cff (ly:otf->cff file-name font-index) name 0))
+        (check-conflict-and-embed-cff name file-name font-index))
        (else
         (ly:warning (_ "do not know how to embed ~S=~S") name file-name)
         ""))))
@@ -550,6 +583,7 @@ mark {ly~a_stream} /CLOSE pdfmark
          (page-number (1- (ly:output-def-lookup paper 'first-page-number)))
          (page-count (length page-stencils))
          (port (ly:outputter-port outputter)))
+    (initialize-font-embedding)
     (if (ly:get-option 'clip-systems)
         (clip-system-EPSes basename book))
     (if (ly:get-option 'dump-signatures)
@@ -630,6 +664,7 @@ mark {ly~a_stream} /CLOSE pdfmark
          (rounded-bbox (to-rounded-bp-box bbox))
          (port (ly:outputter-port outputter))
          (header (eps-header paper rounded-bbox load-fonts)))
+    (initialize-font-embedding)
     (display header port)
     (write-preamble paper load-fonts port)
     (display "/mark_page_link { pop pop pop pop pop } bind def\n" port)

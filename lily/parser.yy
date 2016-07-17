@@ -346,7 +346,6 @@ If we give names, Bison complains.
 %token BOOK_IDENTIFIER
 %token CHORD_MODIFIER
 %token CHORD_REPETITION
-%token CONTEXT_MOD_IDENTIFIER
 %token DRUM_PITCH
  /* Artificial token for durations in argument lists */
 %token DURATION_ARG
@@ -409,10 +408,8 @@ lilypond:	/* empty */ { $$ = SCM_UNSPECIFIED; }
 
 
 toplevel_expression:
-	{
-		parser->lexer_->add_scope (get_header (parser));
-	} lilypond_header {
-		parser->lexer_->set_identifier (ly_symbol2scm ("$defaultheader"), $2);
+	header_block {
+		parser->lexer_->set_identifier (ly_symbol2scm ("$defaultheader"), $1);
 	}
 	| book_block {
 		SCM proc = parser->lexer_->lookup_identifier ("toplevel-book-handler");
@@ -475,6 +472,12 @@ toplevel_expression:
 				id = ly_symbol2scm ("$defaultlayout");
 
 			parser->lexer_->set_identifier (id, $1);
+		} else if (ly_is_module ($1))
+		{
+			SCM module = get_header (parser);
+			ly_module_copy (module, $1);
+			parser->lexer_->set_identifier
+				(ly_symbol2scm ("$defaultheader"), module);
 		} else if (!scm_is_eq ($1, SCM_UNSPECIFIED))
 			parser->parser_error (@1, _("bad expression type"));
 	}
@@ -526,6 +529,7 @@ embedded_scm_bare_arg:
 	| partial_markup
 	| full_markup_list
 	| context_modification
+	| header_block
 	| score_block
 	| context_def_spec_block
 	| book_block
@@ -634,14 +638,29 @@ lilypond_header_body:
 	| lilypond_header_body assignment  {
 
 	}
-	| lilypond_header_body embedded_scm  {
-
+	| lilypond_header_body SCM_TOKEN {
+		// Evaluate and ignore #xxx, as opposed to \xxx
+		parser->lexer_->eval_scm_token ($2, @2);
+	}
+	| lilypond_header_body embedded_scm_active {
+		if (ly_is_module ($2))
+			ly_module_copy (scm_current_module (), $2);
+		else if (!scm_is_eq ($2, SCM_UNSPECIFIED))
+			parser->parser_error (@2, _("bad expression type"));
 	}
 	;
 
 lilypond_header:
 	HEADER '{' lilypond_header_body '}'	{
 		$$ = parser->lexer_->remove_scope ();
+	}
+	;
+
+header_block:
+	{
+		parser->lexer_->add_scope (get_header (parser));
+	} lilypond_header {
+		$$ = $2;
 	}
 	;
 
@@ -706,7 +725,8 @@ identifier_init:
 	;
 
 identifier_init_nonumber:
-	score_block
+	header_block
+	| score_block
 	| book_block
 	| bookpart_block
 	| output_def
@@ -955,16 +975,15 @@ book_body:
 			SCM proc = parser->lexer_->lookup_identifier ("book-score-handler");
 			scm_call_2 (proc, $1, $2);
 		} else if (Output_def *od = unsmob<Output_def> ($2)) {
-			SCM id = SCM_EOL;
-
-			if (to_boolean (od->c_variable ("is-paper")))
-				id = ly_symbol2scm ("$defaultpaper");
-			else if (to_boolean (od->c_variable ("is-midi")))
-				id = ly_symbol2scm ("$defaultmidi");
-			else if (to_boolean (od->c_variable ("is-layout")))
-				id = ly_symbol2scm ("$defaultlayout");
-
-			parser->lexer_->set_identifier (id, $2);
+			if (to_boolean (od->lookup_variable (ly_symbol2scm ("is-paper")))) {
+				unsmob<Book> ($1)->paper_ = od;
+				set_paper (parser, od);
+			} else {
+				parser->parser_error (@2, _ ("need \\paper for paper block"));
+			}
+		} else if (ly_is_module ($2))
+		{
+			ly_module_copy (unsmob<Book> ($1)->header_, $2);
 		} else if (!scm_is_eq ($2, SCM_UNSPECIFIED))
 			parser->parser_error (@2, _("bad expression type"));
 	}
@@ -1036,16 +1055,16 @@ bookpart_body:
 			SCM proc = parser->lexer_->lookup_identifier ("bookpart-score-handler");
 			scm_call_2 (proc, $1, $2);
 		} else if (Output_def *od = unsmob<Output_def> ($2)) {
-			SCM id = SCM_EOL;
-
-			if (to_boolean (od->c_variable ("is-paper")))
-				id = ly_symbol2scm ("$defaultpaper");
-			else if (to_boolean (od->c_variable ("is-midi")))
-				id = ly_symbol2scm ("$defaultmidi");
-			else if (to_boolean (od->c_variable ("is-layout")))
-				id = ly_symbol2scm ("$defaultlayout");
-
-			parser->lexer_->set_identifier (id, $2);
+			if (to_boolean (od->lookup_variable (ly_symbol2scm ("is-paper")))) {
+				unsmob<Book> ($1)->paper_ = od;
+			} else {
+				parser->parser_error (@2, _ ("need \\paper for paper block"));
+			}
+		} else if (ly_is_module ($2)) {
+			Book *book = unsmob<Book> ($1);
+			if (!ly_is_module (book->header_))
+				book->header_ = ly_make_module (false);
+			ly_module_copy (book->header_, $2);
 		} else if (!scm_is_eq ($2, SCM_UNSPECIFIED))
 			parser->parser_error (@2, _("bad expression type"));
 	}
@@ -1144,6 +1163,22 @@ score_items:
 				scm_set_cdr_x ($$, scm_cons ($2, scm_cdr ($$)));
 			else
 				$$ = scm_cons ($2, $$);
+		} else if (ly_is_module ($2)) {
+			SCM module = SCM_UNSPECIFIED;
+			if (score) {
+				module = score->get_header ();
+				if (!ly_is_module (module))
+				{
+					module = ly_make_module (false);
+					score->set_header (module);
+				}
+			} else if (scm_is_pair ($$) && ly_is_module (scm_car ($$)))
+				module = scm_car ($$);
+			else {
+				module = ly_make_module (false);
+				$$ = scm_cons (module, $$);
+			}
+			ly_module_copy (module, $2);
 		} else if (!scm_is_eq ($2, SCM_UNSPECIFIED))
 			parser->parser_error (@2, _("Spurious expression in \\score"));
 	}
@@ -1458,14 +1493,6 @@ context_modification:
                 parser->lexer_->pop_state ();
                 $$ = $4;
         }
-        | WITH CONTEXT_MOD_IDENTIFIER
-        {
-                $$ = $2;
-        }
-        | CONTEXT_MOD_IDENTIFIER
-        {
-                $$ = $1;
-        }
 	| WITH context_modification_arg
 	{
 		if (unsmob<Music> ($2)) {
@@ -1475,7 +1502,10 @@ context_modification:
 		if (unsmob<Context_mod> ($2))
 			$$ = $2;
 		else {
-			parser->parser_error (@2, _ ("not a context mod"));
+			// let's permit \with #*unspecified* to go for
+			// an empty context mod
+			if (!scm_is_eq ($2, SCM_UNSPECIFIED))
+				parser->parser_error (@2, _ ("not a context mod"));
 			$$ = Context_mod ().smobbed_copy ();
 		}
 	}
@@ -1528,24 +1558,16 @@ context_mod_list:
 		if (!SCM_UNBNDP ($2))
 			unsmob<Context_mod> ($1)->add_context_mod ($2);
         }
-        | context_mod_list CONTEXT_MOD_IDENTIFIER {
-                 Context_mod *md = unsmob<Context_mod> ($2);
-                 if (md)
-                     unsmob<Context_mod> ($1)->add_context_mods (md->get_mods ());
-        }
 	| context_mod_list context_mod_arg {
-		if (scm_is_eq ($2, SCM_UNSPECIFIED))
-			;
-		else if (unsmob<Music> ($2)) {
+		if (unsmob<Music> ($2)) {
 			SCM proc = parser->lexer_->lookup_identifier ("context-mod-music-handler");
 			$2 = scm_call_1 (proc, $2);
 		}
 		if (unsmob<Context_mod> ($2))
 			unsmob<Context_mod> ($$)->add_context_mods
 				(unsmob<Context_mod> ($2)->get_mods ());
-		else {
+		else if (!scm_is_eq ($2, SCM_UNSPECIFIED))
 			parser->parser_error (@2, _ ("not a context mod"));
-		}
         }
         ;
 
@@ -2920,15 +2942,11 @@ event_chord:
 		}
 	} %prec ':'
 	| CHORD_REPETITION optional_notemode_duration post_events {
-		Input i;
-		i.set_location (@1, @3);
-		$$ = MAKE_SYNTAX (repetition_chord, i,
+		$$ = MAKE_SYNTAX (repetition_chord, @$,
 				  $2, scm_reverse_x ($3, SCM_EOL));
 	} %prec ':'
 	| MULTI_MEASURE_REST optional_notemode_duration post_events {
-		Input i;
-		i.set_location (@1, @3);
-		$$ = MAKE_SYNTAX (multi_measure_rest, i, $2,
+		$$ = MAKE_SYNTAX (multi_measure_rest, @$, $2,
 				  scm_reverse_x ($3, SCM_EOL));
 	} %prec ':'
 	| tempo_event
@@ -4052,7 +4070,7 @@ Lily_lexer::try_special_identifiers (SCM *destination, SCM sid)
 		return SCM_IDENTIFIER;
         } else if (unsmob<Context_mod> (sid)) {
                 *destination = unsmob<Context_mod> (sid)->smobbed_copy ();
-                return CONTEXT_MOD_IDENTIFIER;
+                return SCM_IDENTIFIER;
 	} else if (Music *mus = unsmob<Music> (sid)) {
 		mus = mus->clone ();
 		*destination = mus->self_scm ();
