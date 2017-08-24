@@ -753,6 +753,12 @@ Syntax: @code{\\\\}")
         (length-callback . ,ly:repeated-music::volta-music-length)
         (types . (repeated-music volta-repeated-music))
         ))
+
+    (WaitMusic
+     . ((description . "Waits for the given event.")
+        (iterator-ctor . ,ly:wait-iterator::constructor)
+        (types . (wait-music))
+        ))
     ))
 
 (set! music-descriptions

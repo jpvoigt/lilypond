@@ -2014,6 +2014,17 @@ void =
 Use this if you want to have a scheme expression evaluated
 because of its side-effects, but its value ignored."))
 
+waitFor =
+#(define-music-function (music) (ly:music?)
+   (_i "Wait for the occurence of the given @var{music} in the
+current context.  Use it, for example, as
+@example
+\\context Score \\waitFor \\mark "A"
+@end example
+")
+   (make-music 'WaitMusic
+               'element music))
+
 withMusicProperty =
 #(define-music-function (sym val music)
    (symbol? scheme? ly:music?)
